@@ -1,0 +1,45 @@
+version: "3.8"
+
+x-prod-env: &prod-env
+  env_file:
+    - ../env/.env
+    - ../env/.env.prod
+
+services:
+  postgres:
+    <<: *prod-env
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  redis:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  superset:
+    <<: *prod-env
+    restart: always
+    # If using a reverse proxy, don't expose ports here.
+    # To expose directly (not recommended), uncomment:
+    # ports:
+    #   - "8088:8088"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+
+  superset-worker:
+    <<: *prod-env
+    restart: always
+
+  superset-worker-beat:
+    <<: *prod-env
+    restart: always

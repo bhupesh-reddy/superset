@@ -1,0 +1,30 @@
+
+
+
+to check the users list in superset:
+docker compose -f compose/docker-compose.yml -f compose/docker-compose.override.yml exec superset   superset fab list-users
+
+
+
+
+
+
+# 0) If you’re using profiles
+export COMPOSE_PROFILES=local
+
+# 1) Make sure DB migrations ran
+docker compose -f compose/docker-compose.yml -f compose/docker-compose.override.yml exec superset \
+  superset db upgrade
+
+# 2) Create a brand-new admin user
+docker compose -f compose/docker-compose.yml -f compose/docker-compose.override.yml exec superset bash -lc '
+  superset fab create-admin \
+    --username sysadmin \
+    --firstname Sys \
+    --lastname Admin \
+    --email sysadmin@example.com \
+    --password "ChangeMeNow123!"'
+
+# 3) (Local login fix) ensure cookies allow HTTP
+grep -q '^SESSION_COOKIE_SECURE' env/.env.local || echo 'SESSION_COOKIE_SECURE=false' >> env/.env.local
+docker compose -f compose/docker-compose.yml -f compose/docker-compose.override.yml restart superset

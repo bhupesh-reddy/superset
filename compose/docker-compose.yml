@@ -1,0 +1,95 @@
+
+name: org-superset
+
+x-env: &default-env
+  env_file:
+    - ../env/.env
+  environment:
+    # allow env overrides from runtime
+    SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+
+networks:
+  superset_net:
+    driver: bridge
+
+volumes:
+  pg_data:
+  superset_home:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    <<: *default-env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-superset}
+      POSTGRES_USER: ${POSTGRES_USER:-superset}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-superset}
+    ports:
+      - "5430:5432" #external:internal
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [superset_net]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [superset_net]
+
+  superset:
+    image: apache/superset:${SUPERSET_IMAGE_TAG:-3.1.1}
+    <<: *default-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - superset_home:/app/superset_home
+      - ../config/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - ../config/gunicorn.conf.py:/app/pythonpath/gunicorn.conf.py:ro
+      - ../plugins:/app/pythonpath/plugins
+    command: ["gunicorn", "-c", "/app/pythonpath/gunicorn.conf.py", "superset.app:create_app()"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8088/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [superset_net]
+
+  superset-worker:
+    image: apache/superset:${SUPERSET_IMAGE_TAG:-3.1.1}
+    <<: *default-env
+    depends_on:
+      superset:
+        condition: service_healthy
+    command: ["celery", "--app", "superset.tasks.celery_app:app", "worker", "--pool", "prefork", "-O", "fair", "-l", "INFO"]
+    volumes:
+      - superset_home:/app/superset_home
+      - ../config/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - ../plugins:/app/pythonpath/plugins
+    networks: [superset_net]
+
+  superset-worker-beat:
+    image: apache/superset:${SUPERSET_IMAGE_TAG:-3.1.1}
+    <<: *default-env
+    depends_on:
+      superset:
+        condition: service_healthy
+    command: ["celery", "--app", "superset.tasks.celery_app:app", "beat", "-l", "INFO", 
+        "-s", "/app/superset_home/celerybeat-schedule.db"
+    ]
+    volumes:
+      - superset_home:/app/superset_home
+      - ../config/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - ../plugins:/app/pythonpath/plugins   
+    networks: [superset_net]
